@@ -1,4 +1,5 @@
 from model.command_generation_request import CommandGenerationRequest
+from model.command_generation_request import GeneratedCommand
 
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import PromptTemplate
@@ -11,13 +12,17 @@ class CommandGenerator:
             verbose=True
         )
 
-    def generate_bash_command(self, request: CommandGenerationRequest):
-        prompt = self.prompt_template().format(task_description=request.user_prompt)
-        model_response = self.llm.invoke(prompt)
-        print('Unparsed Output: {}'.format(model_response))
+    def generate_bash_command(self, request: CommandGenerationRequest) -> GeneratedCommand:
+        prompt = self.prompt_template().format(
+            task_description=request.user_prompt
+        )
 
-        parsed_response = JsonOutputParser().parse(model_response.content)
-        print('Parsed Output: {}'.format(parsed_response))
+        json_response = JsonOutputParser().parse(
+            self.llm.invoke(prompt).content
+        )
+
+        return GeneratedCommand.from_json(json_response)
+
 
     def prompt_template(self) -> PromptTemplate:
         return PromptTemplate(
