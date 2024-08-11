@@ -55,7 +55,8 @@ def generate_command(prompt: str, is_initial: bool) -> GeneratedCommand:
         )
 
         return command_generator.generate_bash_command(
-            request=request
+            request=request,
+            is_revision=not is_initial
         )
      
 def display_table(generated_command: GeneratedCommand):

@@ -6,64 +6,60 @@ from langchain_core.prompts import PromptTemplate, MessagesPlaceholder, ChatProm
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_community.chat_message_histories import SQLChatMessageHistory
+from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.messages import HumanMessage
 
+from langsmith import traceable
+
+import uuid
+
 class CommandGenerator:
+    """
+    Instances of the CommandGenerator are responsible for building 
+    and invoking the chain that generates the bash command.
+
+    TODO:
+        1. Add ability to use different models.
+    """
     def __init__(self) -> None:
+        self.instance_id = str(uuid.uuid1())
+        self.chat_history = ChatMessageHistory()
+
         self.llm = ChatOllama(
             model='llama3.1',
-            verbose=True
         )
 
         self.json_parser = JsonOutputParser()
 
-        initial_prompt = ChatPromptTemplate.from_messages([
+        prompt = ChatPromptTemplate.from_messages([
             ('system', CommandGenerator.system_prompt()),
             MessagesPlaceholder(variable_name='history'),
-            ('human', CommandGenerator.initial_prompt()),
+            ('human', '{input}'),
         ])
 
-        self.chat_runnable = self.create_chat_runnable(
-            initial_prompt
-        )
+        chain = prompt | self.llm
 
-    def create_chat_runnable(self, prompt_template: ChatPromptTemplate) -> RunnableWithMessageHistory:
-        self.runnable = prompt_template | self.llm | self.json_parser
-
-        return RunnableWithMessageHistory(
-            self.runnable, 
-            self.get_session_history,
-            input_messages_key='task_description',
+        self.chat_runnable = RunnableWithMessageHistory(
+            chain, 
+            lambda session_id: self.chat_history,
+            input_messages_key='input',
             history_messages_key='history'
-        )
-
-    def get_session_history(self, session_id: int):
-        return SQLChatMessageHistory(session_id, connection='sqlite:///chat_history.db')
+        )    
     
     ##
     ## Invocation
     ##
 
-    def generate_bash_command(self, request: CommandGenerationRequest) -> GeneratedCommand:
+    @traceable
+    def generate_bash_command(self, request: CommandGenerationRequest, is_revision: bool) -> GeneratedCommand:
         result = self.chat_runnable.invoke(
-            {'task_description': request.user_prompt},
-            config={"configurable": {"session_id": "1"}},
+            {'input': CommandGenerator.formatted_user_prompt(request.user_prompt, is_revision=is_revision)},
+            config={"configurable": {"session_id": self.instance_id}},
         )
 
-        return GeneratedCommand.from_json(result)
-    
-    def revise_bash_command(self, request: CommandGenerationRequest) -> GeneratedCommand:
-        revision_prompt = ChatPromptTemplate.from_messages([
-            ('system', CommandGenerator.system_prompt()),
-            MessagesPlaceholder(variable_name='history'),
-            ('human', CommandGenerator.revision_prompt()),
-        ])
+        parsed_output = self.json_parser.parse(result.content)
 
-        self.chat_runnable = self.create_chat_runnable(
-            revision_prompt
-        )
-
-        return self.generate_bash_command(request=request)
+        return GeneratedCommand.from_json(parsed_output)
     
     ##
     ## Prompts
@@ -82,15 +78,14 @@ class CommandGenerator:
         """
     
     @classmethod
-    def initial_prompt(cls) -> str:
-        return """
-        Task: {task_description}
-        """
-    
-    @classmethod
-    def revision_prompt(cls) -> str:
-        return """
-        Please revise the previous bash command using the following revision instructions.
+    def formatted_user_prompt(cls, user_prompt: str, is_revision) -> str:
+        if not is_revision:
+            return f"""
+            Task: {user_prompt}
+            """
+        else:
+            return f"""
+            Please revise the previous bash command using the following revision instructions.
 
-        {task_description}
+            {user_prompt}
         """
