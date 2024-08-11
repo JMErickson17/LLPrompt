@@ -27,25 +27,25 @@ def generate_shell_command(prompt: str):
 
     display_table(generated_command)
     
-    while not user_accepted_generated_command:
+    # while not user_accepted_generated_command:
 
-        user_input = typer.prompt('>>>')
+    #     user_input = typer.prompt('>>>')
 
-        try:
-            selected_option = list(UserInputOption)[int(user_input) - 1]
+    #     try:
+    #         selected_option = list(UserInputOption)[int(user_input) - 1]
 
-            if selected_option == UserInputOption.REVISE_PROMPT:
-                revision_prompt = typer.prompt('Revise')
-                generated_command = generate_command(revision_prompt, is_initial=False)
-                display_table(generated_command)
+    #         if selected_option == UserInputOption.REVISE_PROMPT:
+    #             revision_prompt = typer.prompt('Revise')
+    #             generated_command = generate_command(revision_prompt, is_initial=False)
+    #             display_table(generated_command)
 
-            else:
-                #TODO: Handle the other cases
-                user_accepted_generated_command = True
-                break
+    #         else:
+    #             #TODO: Handle the other cases
+    #             user_accepted_generated_command = True
+    #             break
 
-        except (IndexError, ValueError):
-            console.print('Invalid selection')
+    #     except (IndexError, ValueError):
+    #         console.print('Invalid selection')
 
 def generate_command(prompt: str, is_initial: bool) -> GeneratedCommand:
      with console.status('Generating command'):

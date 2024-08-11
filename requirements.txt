@@ -1,6 +1,8 @@
 langchain
 langchain-ollama
 langchain-community
+langchain-chroma
 rich
 typer
 langsmith
+beautifulsoup4

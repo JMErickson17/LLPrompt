@@ -1,15 +1,18 @@
+from llprompt.core.explain_shell_retriever import ExplainShellRetriever
 from model.command_generation_request import CommandGenerationRequest
 from model.command_generation_request import GeneratedCommand
 
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import MessagesPlaceholder, ChatPromptTemplate
-from langchain_core.output_parsers import JsonOutputParser
+from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_community.chat_message_histories import ChatMessageHistory
 
 from langsmith import traceable
 
 import uuid
+
+import json
 
 class CommandGenerator:
     """
@@ -27,12 +30,14 @@ class CommandGenerator:
     def __init__(self) -> None:
         self.instance_id = str(uuid.uuid1())
         self.chat_history = ChatMessageHistory()
-
+        
         self.llm = ChatOllama(
             model='llama3.1',
         )
 
-        self.json_parser = JsonOutputParser()
+        self.explain_shell_retriever = ExplainShellRetriever(
+            llm=self.llm
+        )
 
         prompt = ChatPromptTemplate.from_messages([
             ('system', CommandGenerator.system_prompt()),
@@ -40,8 +45,13 @@ class CommandGenerator:
             ('human', '{input}'),
         ])
 
-        chain = prompt | self.llm
-
+        chain = (
+            prompt 
+            | self.llm 
+            | StrOutputParser() 
+            | self.explain_shell_retriever
+        )
+        
         self.chat = RunnableWithMessageHistory(
             chain, 
             lambda session_id: self.chat_history,
@@ -60,11 +70,18 @@ class CommandGenerator:
             config={"configurable": {"session_id": self.instance_id}},
         )
 
-        return GeneratedCommand.from_json(
-            self.json_parser.parse(
-                result.content
-            )
-        )
+        # response = GeneratedCommand.from_json(
+        #     self.json_parser.parse(
+        #         result.content
+        #     )
+        # )
+
+        print(result)
+
+        return GeneratedCommand('', '')
+
+        # return response
+
     
     ##
     ## Prompts
@@ -77,9 +94,10 @@ class CommandGenerator:
 
         The current operating system is MacOS.
 
-        Write the bash command(s) that will accomplish the task described. Also provide a short explanation of what the command will do.
+        Write the bash command(s) that will accomplish the task described. 
 
-        Your response should be structured as a json object that contains two keys: 'command' and 'explanation'. Only the json object should be returned.
+        Your response should only contain the command and nothing else. 
+        For example, if asked to generate a command that lists all files, you would return 'ls'.
         """
     
     @classmethod
