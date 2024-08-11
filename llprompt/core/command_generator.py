@@ -2,12 +2,10 @@ from model.command_generation_request import CommandGenerationRequest
 from model.command_generation_request import GeneratedCommand
 
 from langchain_ollama import ChatOllama
-from langchain_core.prompts import PromptTemplate, MessagesPlaceholder, ChatPromptTemplate
+from langchain_core.prompts import MessagesPlaceholder, ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_community.chat_message_histories import SQLChatMessageHistory
 from langchain_community.chat_message_histories import ChatMessageHistory
-from langchain_core.messages import HumanMessage
 
 from langsmith import traceable
 
@@ -21,6 +19,11 @@ class CommandGenerator:
     TODO:
         1. Add ability to use different models.
     """
+
+    ##
+    ## Init
+    ##
+
     def __init__(self) -> None:
         self.instance_id = str(uuid.uuid1())
         self.chat_history = ChatMessageHistory()
@@ -39,7 +42,7 @@ class CommandGenerator:
 
         chain = prompt | self.llm
 
-        self.chat_runnable = RunnableWithMessageHistory(
+        self.chat = RunnableWithMessageHistory(
             chain, 
             lambda session_id: self.chat_history,
             input_messages_key='input',
@@ -47,19 +50,21 @@ class CommandGenerator:
         )    
     
     ##
-    ## Invocation
+    ## Chain Invocation
     ##
 
     @traceable
     def generate_bash_command(self, request: CommandGenerationRequest, is_revision: bool) -> GeneratedCommand:
-        result = self.chat_runnable.invoke(
+        result = self.chat.invoke(
             {'input': CommandGenerator.formatted_user_prompt(request.user_prompt, is_revision=is_revision)},
             config={"configurable": {"session_id": self.instance_id}},
         )
 
-        parsed_output = self.json_parser.parse(result.content)
-
-        return GeneratedCommand.from_json(parsed_output)
+        return GeneratedCommand.from_json(
+            self.json_parser.parse(
+                result.content
+            )
+        )
     
     ##
     ## Prompts
