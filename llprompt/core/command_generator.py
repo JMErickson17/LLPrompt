@@ -1,4 +1,4 @@
-from llprompt.core.explain_shell_retriever import ExplainShellRetriever
+from llprompt.core.explain_shell import ExplainShell
 from model.command_generation_request import CommandGenerationRequest
 from model.command_generation_request import GeneratedCommand
 
@@ -14,13 +14,16 @@ import uuid
 
 import json
 
+
 class CommandGenerator:
     """
-    Instances of the CommandGenerator are responsible for building 
+    Instances of the CommandGenerator are responsible for building
     and invoking the chain that generates the bash command.
 
     TODO:
         1. Add ability to use different models.
+        2. Add error handling/recovery for model output, with retries (Agent?)
+        3. Add ability to test generated command for accuracy?
     """
 
     ##
@@ -30,59 +33,50 @@ class CommandGenerator:
     def __init__(self) -> None:
         self.instance_id = str(uuid.uuid1())
         self.chat_history = ChatMessageHistory()
-        
-        self.llm = ChatOllama(
-            model='llama3.1',
+
+        llm = ChatOllama(
+            model="llama3.1",
         )
 
-        self.explain_shell_retriever = ExplainShellRetriever(
-            llm=self.llm
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", CommandGenerator.system_prompt()),
+                MessagesPlaceholder(variable_name="history"),
+                ("human", "{input}"),
+            ]
         )
 
-        prompt = ChatPromptTemplate.from_messages([
-            ('system', CommandGenerator.system_prompt()),
-            MessagesPlaceholder(variable_name='history'),
-            ('human', '{input}'),
-        ])
+        explain_shell_retriever = ExplainShell(llm=llm)
 
-        chain = (
-            prompt 
-            | self.llm 
-            | StrOutputParser() 
-            | self.explain_shell_retriever
-        )
-        
+        chain = prompt | llm | StrOutputParser() | explain_shell_retriever
+
         self.chat = RunnableWithMessageHistory(
-            chain, 
+            chain,
             lambda session_id: self.chat_history,
-            input_messages_key='input',
-            history_messages_key='history'
-        )    
-    
+            input_messages_key="input",
+            history_messages_key="history",
+        )
+
     ##
     ## Chain Invocation
     ##
 
     @traceable
-    def generate_bash_command(self, request: CommandGenerationRequest, is_revision: bool) -> GeneratedCommand:
-        result = self.chat.invoke(
-            {'input': CommandGenerator.formatted_user_prompt(request.user_prompt, is_revision=is_revision)},
+    def generate_bash_command(
+        self, request: CommandGenerationRequest, is_revision: bool
+    ) -> GeneratedCommand:
+        """
+        Generates a bash command using the LLM chain.
+        """
+        return self.chat.invoke(
+            {
+                "input": CommandGenerator.formatted_user_prompt(
+                    request.user_prompt, is_revision=is_revision
+                )
+            },
             config={"configurable": {"session_id": self.instance_id}},
         )
 
-        # response = GeneratedCommand.from_json(
-        #     self.json_parser.parse(
-        #         result.content
-        #     )
-        # )
-
-        print(result)
-
-        return GeneratedCommand('', '')
-
-        # return response
-
-    
     ##
     ## Prompts
     ##
@@ -99,7 +93,7 @@ class CommandGenerator:
         Your response should only contain the command and nothing else. 
         For example, if asked to generate a command that lists all files, you would return 'ls'.
         """
-    
+
     @classmethod
     def formatted_user_prompt(cls, user_prompt: str, is_revision) -> str:
         if not is_revision:

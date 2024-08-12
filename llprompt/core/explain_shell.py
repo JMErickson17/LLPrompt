@@ -8,32 +8,34 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_ollama import OllamaEmbeddings
 
+from model.command_generation_request import GeneratedCommand
+
 from langchain_core.runnables import Runnable, RunnableConfig
 
 import urllib.parse
 
 from langsmith import traceable
 
-class ExplainShellExplanation(TypedDict):
-    """An explanation of the shell command, with sources."""
 
-    # command: str
-    answer: str
-    sources: Annotated[
-        List[str],
-        ...,
-        "List of sources used to answer the question",
-    ]
+class ExplainShell(Runnable):
+    """
+    ExplainShell is an experimental Runnable that uses a retriever to fetch 
+    the contents of the of the explainshell.com web page to describe the generated
+    command in detail and with high accuracy.
 
+    TODO: 
+    1. Improve error handling with included retries. 
+    2. Is this the best architecture? Should there be an orchestrator layer that chains this and the command_generator?
+    3. Can these system prompts be improved?
+    """
 
-class ExplainShellRetriever(Runnable):
     def __init__(self, llm) -> None:
         self.llm = llm
 
     @traceable
-    def invoke(self, input: str, config: Optional[RunnableConfig] = None) -> ExplainShellExplanation:
+    def invoke(self, input: str, config: Optional[RunnableConfig] = None) -> GeneratedCommand:
         prompt = ChatPromptTemplate.from_messages(
-            [("system", ExplainShellRetriever.system_prompt()), ("human", "{input}")]
+            [("system", ExplainShell.system_prompt()), ("human", "{input}")]
         )
 
         explain_shell_chain = (
@@ -42,7 +44,7 @@ class ExplainShellRetriever(Runnable):
                 "context": lambda dict: dict["context"],
             }
             | prompt
-            | self.llm.with_structured_output(ExplainShellExplanation)
+            | self.llm.with_structured_output(GeneratedCommand)
         )
 
         retriever = self.create_retriever(input)
@@ -51,12 +53,12 @@ class ExplainShellRetriever(Runnable):
         chain = RunnablePassthrough.assign(
             context=retrieve_explain_shell
         ).assign(
-            answer=explain_shell_chain
+            generated_command=explain_shell_chain
         )
 
         result = chain.invoke(
-            {"input": ExplainShellRetriever.explain_shell_prompt(input)}
-        )
+            {"input": ExplainShell.explain_shell_prompt(input)}
+        ).get('generated_command')
 
         return result
 
@@ -85,8 +87,6 @@ class ExplainShellRetriever(Runnable):
     ##
     ## Prompts
     ##
-
-    # Using the data source provided, return a json object that contains a 'command' field with the original command, and an 'explanation' field that contains a markdown string explaining the shell command in detail. 
 
     @classmethod
     def system_prompt(cls) -> str:
