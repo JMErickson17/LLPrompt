@@ -16,6 +16,9 @@ import urllib.parse
 
 from langsmith import traceable
 
+# class ExplainCommandNode:
+
+
 
 class ExplainShell(Runnable):
     """

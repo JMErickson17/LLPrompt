@@ -2,7 +2,10 @@ langchain
 langchain-ollama
 langchain-community
 langchain-chroma
+langgraph
+langgraph-checkpoint-sqlite
 rich
 typer
 langsmith
 beautifulsoup4
+python-dotenv

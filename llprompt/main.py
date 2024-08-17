@@ -2,6 +2,8 @@ import typer
 import os
 import sys
 
+from dotenv import load_dotenv
+
 from rich.console import Console
 from rich.table import Table
 
@@ -11,12 +13,14 @@ if project_dir not in sys.path:
 
 from model.command_generation_request import CommandGenerationRequest, GeneratedCommand
 from model.user_input_options import UserInputOption
-from core.command_generator import CommandGenerator
+from llprompt.core.llp_graph import LLPGraph
+
+load_dotenv('../.env')
 
 console = Console(width=100)
 llp = typer.Typer()
 
-command_generator = CommandGenerator()
+graph = LLPGraph()
 
 """
 TODO: 
@@ -25,13 +29,12 @@ TODO:
     - Explore different architectures for the chains
 """
 
-
 @llp.command()
 def generate_shell_command(prompt: str):
 
     user_accepted_generated_command = False
 
-    generated_command = generate_command(prompt, is_initial=True)
+    generated_command = generate_command(prompt)
 
     display_table(generated_command)
 
@@ -44,7 +47,7 @@ def generate_shell_command(prompt: str):
 
             if selected_option == UserInputOption.REVISE_PROMPT:
                 revision_prompt = typer.prompt("Revise")
-                generated_command = generate_command(revision_prompt, is_initial=False)
+                generated_command = generate_command(revision_prompt)
                 display_table(generated_command)
 
             else:
@@ -56,13 +59,13 @@ def generate_shell_command(prompt: str):
             console.print("Invalid selection")
 
 
-def generate_command(prompt: str, is_initial: bool) -> GeneratedCommand:
+def generate_command(prompt: str) -> GeneratedCommand:
     with console.status("Generating command"):
 
         request = CommandGenerationRequest(user_prompt=prompt)
 
-        return command_generator.generate_bash_command(
-            request=request, is_revision=not is_initial
+        return graph.generate_bash_command(
+            request=request
         )
 
 

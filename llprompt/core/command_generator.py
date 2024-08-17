@@ -1,21 +1,14 @@
-from llprompt.core.explain_shell import ExplainShell
-from model.command_generation_request import CommandGenerationRequest
-from model.command_generation_request import GeneratedCommand
-
-from langchain_ollama import ChatOllama
-from langchain_core.prompts import MessagesPlaceholder, ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
-from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_community.chat_message_histories import ChatMessageHistory
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 
 from langsmith import traceable
 
-import uuid
+from .user_prompt_formatter import UserPromptFormatter
+from .llp_state import LLPState
 
-import json
 
-
-class CommandGenerator:
+@traceable(name="LLPGraph")
+class CommandGeneratorNode:
     """
     Instances of the CommandGenerator are responsible for building
     and invoking the chain that generates the bash command.
@@ -26,83 +19,32 @@ class CommandGenerator:
         3. Add ability to test generated command for accuracy?
     """
 
-    ##
-    ## Init
-    ##
+    def __init__(self, llm) -> None:
+        self.llm = llm
 
-    def __init__(self) -> None:
-        self.instance_id = str(uuid.uuid1())
-        self.chat_history = ChatMessageHistory()
-
-        llm = ChatOllama(
-            model="llama3.1",
-        )
-
-        prompt = ChatPromptTemplate.from_messages(
+        self.prompt = ChatPromptTemplate.from_messages(
             [
-                ("system", CommandGenerator.system_prompt()),
-                MessagesPlaceholder(variable_name="history"),
-                ("human", "{input}"),
+                ("system", UserPromptFormatter.system_prompt()),
+                ("placeholder", "{messages}"),
             ]
         )
 
-        explain_shell_retriever = ExplainShell(llm=llm)
+        self.chain = self.prompt | self.llm | StrOutputParser()
 
-        chain = prompt | llm | StrOutputParser() | explain_shell_retriever
+    def __call__(self, state: LLPState):
+        is_revision = state["generated_command"] is not None
 
-        self.chat = RunnableWithMessageHistory(
-            chain,
-            lambda session_id: self.chat_history,
-            input_messages_key="input",
-            history_messages_key="history",
+        latest_user_prompt = state["messages"][-1].content
+        state["messages"][-1].content = UserPromptFormatter.formatted_user_prompt(
+            latest_user_prompt, is_revision=is_revision
         )
 
-    ##
-    ## Chain Invocation
-    ##
+        messages = state["messages"]
 
-    @traceable
-    def generate_bash_command(
-        self, request: CommandGenerationRequest, is_revision: bool
-    ) -> GeneratedCommand:
-        """
-        Generates a bash command using the LLM chain.
-        """
-        return self.chat.invoke(
+        output = self.chain.invoke(
             {
-                "input": CommandGenerator.formatted_user_prompt(
-                    request.user_prompt, is_revision=is_revision
-                )
-            },
-            config={"configurable": {"session_id": self.instance_id}},
+                "messages": messages,
+            }
         )
 
-    ##
-    ## Prompts
-    ##
-
-    @classmethod
-    def system_prompt(cls) -> str:
-        return """
-        You are a highly skilled Linux systems administrator. You can generate efficient and correct bash commands for any task. 
-
-        The current operating system is MacOS.
-
-        Write the bash command(s) that will accomplish the task described. 
-
-        Your response should only contain the command and nothing else. 
-        For example, if asked to generate a command that lists all files, you would return 'ls'.
-        """
-
-    @classmethod
-    def formatted_user_prompt(cls, user_prompt: str, is_revision) -> str:
-        if not is_revision:
-            return f"""
-            Task: {user_prompt}
-            """
-        else:
-            return f"""
-            Please revise the previous bash command using the following revision instructions.
-
-            {user_prompt}
-        """
+        return {"messages": messages, "generated_command": output}
